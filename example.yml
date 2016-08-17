@@ -1,0 +1,11 @@
+version: '2'
+
+services:
+  apish:
+    image: krkr/apish
+    expose:
+      - 4242
+    labels:
+      - iplb.port=423
+      - iplb.backend=apish
+      - iplb.frontend.rule=bim.ha.blurb.space
