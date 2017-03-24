@@ -3,15 +3,13 @@ package main
 import (
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/Sirupsen/logrus"
 	dockerapi "github.com/fsouza/go-dockerclient"
 	"github.com/gin-gonic/gin"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/thbkrkr/go-utilz/http"
-	"github.com/thbkrkr/iplb-docker/api"
-	iplbapi "github.com/thbkrkr/iplb-docker/iplb"
+	"github.com/thbkrkr/iplb-docker/iplb"
 	"github.com/thbkrkr/iplb-docker/models"
 )
 
@@ -20,13 +18,14 @@ type Config struct {
 	OvhApplicationKey    string `envconfig:"OVH_AK" required:"true"`
 	OvhApplicationSecret string `envconfig:"OVH_AS" required:"true"`
 	OvhConsumerKey       string `envconfig:"OVH_CK" required:"true"`
+	IpLbZone             string `envconfig:"OVH_ZONE" required:"true"`
 	IpLbServiceName      string `envconfig:"OVH_SERVICENAME" required:"true"`
 }
 
 const (
-	backendLabel  = "iplb.backend"
-	frontendLabel = "iplb.frontend.rule"
 	portLabel     = "iplb.port"
+	backendLabel  = "iplb.backend"
+	frontendLabel = "iplb.frontend"
 	syncInterval  = 30
 )
 
@@ -38,8 +37,11 @@ var (
 )
 
 var (
-	docker   *dockerapi.Client
-	config   Config
+	docker *dockerapi.Client
+	config Config
+
+	// Services to synchronized shared between the docker listener
+	// and the iplb sync tick
 	services = []models.Service{}
 	lock     sync.Mutex
 )
@@ -56,9 +58,9 @@ func main() {
 	assert(err, "Fail to create Docker client")
 
 	// Create IPLB client
-	iplb, err := iplbapi.NewIPLB(config.OvhEndpoint,
+	iplbClient, err := iplb.NewIPLB(config.OvhEndpoint,
 		config.OvhApplicationKey, config.OvhApplicationSecret, config.OvhConsumerKey,
-		config.IpLbServiceName)
+		config.IpLbZone, config.IpLbServiceName)
 	assert(err, "Fail to create OVH IPLB client")
 
 	// Get running containers
@@ -74,16 +76,16 @@ func main() {
 	}
 
 	// Sync services in IPLB
-	iplb.Sync(services)
+	//iplbClient.Sync(services)
 	quit := make(chan struct{})
-	go func() {
+	/*go func() {
 		syncTicker := time.NewTicker(time.Duration(syncInterval) * time.Second)
 		for {
 			select {
 
 			case <-syncTicker.C:
 				lock.Lock()
-				iplb.Sync(services)
+				iplbClient.Sync(services)
 				lock.Unlock()
 
 			case <-quit:
@@ -91,10 +93,10 @@ func main() {
 				return
 			}
 		}
-	}()
+	}()*/
 
 	// Listen docker events
-	go func() {
+	/*go func() {
 		events := make(chan *dockerapi.APIEvents)
 		assert(docker.AddEventListener(events), "Fail to listen Docker events")
 
@@ -116,15 +118,16 @@ func main() {
 				}
 			}
 		}
-	}()
+	}()*/
 
 	// HTTP API
-	API := api.Api{IPLB: iplb}
+	iplbApi := iplb.Api{IPLBClient: iplbClient}
 	http.API(name, buildDate, gitCommit, port, func(r *gin.Engine) {
-		r.GET("/backend", API.Backends)
-		r.GET("/frontend", API.Frontends)
-		r.GET("/server", API.Servers)
-		r.GET("/link", API.Links)
+		r.GET("/server", iplbApi.Servers)
+		r.GET("/farm", iplbApi.Farms)
+		r.GET("/frontend", iplbApi.Frontends)
+		r.GET("/ssl", iplbApi.SSLs)
+		r.GET("/route", iplbApi.Routes)
 	})
 
 	close(quit)
