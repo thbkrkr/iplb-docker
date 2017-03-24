@@ -34,6 +34,7 @@ var (
 	buildDate = "dev"
 	gitCommit = "dev"
 	name      = "iplb-docker"
+	port      = 4242
 )
 
 var (
@@ -119,7 +120,7 @@ func main() {
 
 	// HTTP API
 	API := api.Api{IPLB: iplb}
-	http.API(name, buildDate, gitCommit, func(r *gin.Engine) {
+	http.API(name, buildDate, gitCommit, port, func(r *gin.Engine) {
 		r.GET("/backend", API.Backends)
 		r.GET("/frontend", API.Frontends)
 		r.GET("/server", API.Servers)
